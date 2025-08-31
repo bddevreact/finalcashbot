@@ -41,6 +41,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Bot configuration
 BOT_TOKEN = os.getenv('BOT_TOKEN', '')
 BOT_USERNAME = 'CashPoinntbot'
 
@@ -613,19 +614,23 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # User is already a member - show mini app directly
         welcome_text = (
             f"🎉 <b>স্বাগতম {user_name}!</b>\n\n"
-            "✅ আপনি ইতিমধ্যে আমাদের গ্রুপের সদস্য!\n\n"
+            "✅ আপনি সফলভাবে আমাদের গ্রুপে যুক্ত হয়েছেন।\n\n"
+            "📢 প্রতিদিন রাত ৯টায় আমাদের <b>লাইভ ক্লাসে</b> যোগ দেওয়ার সুযোগ পাচ্ছেন।\n"
+            "👀 নিয়মিত চোখ রাখুন আমাদের গ্রুপে, যেন কোনো আপডেট মিস না হয়।\n\n"
             "🏆 <b>রিওয়ার্ড অর্জন এখন আরও সহজ!</b>\n"
-            "💰 কোনো ইনভেস্টমেন্ট ছাড়াই প্রতিদিন জিতে নিন রিওয়ার্ড।\n\n"
-            "👉 এখনই Mini App খুলুন এবং আপনার রিওয়ার্ড ক্লেইম করুন!"
+            "💰 কোনো ইনভেস্টমেন্ট ছাড়াই প্রতিদিন জিতে নিন বিশেষ রিওয়ার্ড।\n"
+            "🎁 <b>App ব্যবহার করে বন্ধুদের গ্রুপে আমন্ত্রণ জানান এবং জিতে নিন সর্বোচ্চ ৫,২০০ টাকা (BDT)!</b>\n\n"
+            "👉 পাশের <b>Earn</b> বাটনে ট্যাপ করে এখনই <b>Mini App</b> ওপেন করুন এবং রিওয়ার্ড ক্লেইম করুন!"
         )
+
         
         keyboard = [
-            [InlineKeyboardButton("🚀 Open Mini App", url=MINI_APP_URL)]
+            [InlineKeyboardButton("Open and Earn 💰", url=MINI_APP_URL)]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
         await update.message.reply_photo(
-            photo="https://i.postimg.cc/44DtvWyZ/43b0363d-525b-425c-bc02-b66f6d214445-1.jpg",
+            photo="https://i.postimg.cc/65Sx65jK/01.jpg",
             caption=welcome_text,
             reply_markup=reply_markup,
             parse_mode='HTML'
@@ -720,7 +725,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             except Exception:
                 # If edit fails, send new message
                 await query.message.reply_photo(
-                    photo="https://i.postimg.cc/44DtvWyZ/43b0363d-525b-425c-bc02-b66f6d214445-1.jpg",
+                    photo="https://i.postimg.cc/65Sx65jK/01.jpg",
                     caption=success_text,
                     reply_markup=reply_markup,
                     parse_mode='HTML'
