@@ -855,7 +855,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-def main():
+async def main():
     """Main function to run the bot"""
     global bot_instance
     
@@ -898,11 +898,11 @@ def main():
         # Set webhook URL
         webhook_url = os.environ.get('WEBHOOK_URL')
         if webhook_url:
-            application.bot.set_webhook(url=f"{webhook_url}/webhook")
+            await application.bot.set_webhook(url=f"{webhook_url}/webhook")
             print(f"🔗 Webhook set to: {webhook_url}/webhook")
         
         # Start webhook
-        application.run_webhook(
+        await application.run_webhook(
             listen="0.0.0.0",
             port=port,
             webhook_url=f"/webhook",
@@ -911,8 +911,9 @@ def main():
     else:
         # Development mode - use polling
         print("🖥️  Development Environment - Using Polling")
-        application.run_polling()
+        await application.run_polling()
 
 
 if __name__ == "__main__":
-    main()
+    import asyncio
+    asyncio.run(main())
