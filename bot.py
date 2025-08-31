@@ -866,9 +866,33 @@ async def main():
     print("📡 Using Polling Mode - No webhook required")
     
     # Use polling mode for all environments
-    await application.run_polling()
+    try:
+        await application.run_polling(allowed_updates=Update.ALL_TYPES)
+    except KeyboardInterrupt:
+        print("\n🛑 Bot stopped by user")
+    except Exception as e:
+        print(f"❌ Bot error: {e}")
+        raise
 
 
 if __name__ == "__main__":
     import asyncio
-    asyncio.run(main())
+    import signal
+    import sys
+    
+    def signal_handler(signum, frame):
+        print("\n🛑 Received interrupt signal, shutting down gracefully...")
+        sys.exit(0)
+    
+    # Set up signal handlers for graceful shutdown
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+    
+    try:
+        # Run the bot
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("\n🛑 Bot stopped by user")
+    except Exception as e:
+        print(f"❌ Fatal error: {e}")
+        sys.exit(1)
