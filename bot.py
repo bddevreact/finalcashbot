@@ -42,7 +42,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Bot configuration
-BOT_TOKEN = os.getenv('BOT_TOKEN', '8214925584:AAGzxmpSxFTGmvU-L778DNxUJ35QUR5dDZU')
+BOT_TOKEN = os.getenv('BOT_TOKEN', '')
 BOT_USERNAME = 'CashPoinntbot'
 
 # Group configuration
