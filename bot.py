@@ -14,6 +14,7 @@ import logging
 import requests
 from datetime import datetime
 from typing import Optional, Dict, Any
+from flask import Flask, request, jsonify
 
 # Telegram Bot imports
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -27,8 +28,15 @@ import firebase_admin
 from firebase_admin import credentials, firestore
 from dotenv import load_dotenv
 
-# Load environment variables
-load_dotenv()
+# Flask app for Railway health checks
+app = Flask(__name__)
+
+# Load environment variables safely
+try:
+    load_dotenv()
+except Exception as e:
+    print(f"⚠️ Warning: Could not load .env file: {e}")
+    print("📝 Continuing with system environment variables...")
 
 # Configure logging
 logging.basicConfig(
@@ -37,8 +45,19 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+def safe_getenv(key, default=''):
+    """Safely get environment variable, handling null characters"""
+    try:
+        value = os.getenv(key, default)
+        if value and '\x00' in value:
+            # Remove null characters
+            value = value.replace('\x00', '')
+        return value
+    except Exception:
+        return default
+
 # Bot configuration
-BOT_TOKEN = os.getenv('BOT_TOKEN', '')
+BOT_TOKEN = safe_getenv('BOT_TOKEN', '')
 BOT_USERNAME = 'CashPoinntbot'
 
 # Group configuration
@@ -58,6 +77,30 @@ firebase_error_details = None
 
 # Global bot instance
 bot_instance = None
+
+# Flask routes for Railway health checks
+@app.route('/')
+def health_check():
+    """Health check endpoint for Railway"""
+    return jsonify({
+        'status': 'healthy',
+        'bot': 'Cash Points Bot',
+        'database': 'connected' if db else 'offline',
+        'timestamp': datetime.now().isoformat()
+    })
+
+@app.route('/webhook', methods=['POST'])
+def webhook():
+    """Webhook endpoint for Telegram bot"""
+    if request.method == 'POST':
+        if bot_instance:
+            # Forward the webhook to the bot
+            update = Update.de_json(request.get_json(), bot_instance.application.bot)
+            bot_instance.application.process_update(update)
+            return jsonify({'status': 'ok'})
+        else:
+            return jsonify({'status': 'error', 'message': 'Bot not initialized'}), 500
+    return jsonify({'status': 'error', 'message': 'Method not allowed'}), 405
 
 def check_system_time():
     """Check if system time is reasonable (not too far off)"""
@@ -124,9 +167,9 @@ try:
         print("✅ System time check passed")
     
     # Prioritize environment variables for Railway deployment
-    firebase_project_id = os.getenv('FIREBASE_PROJECT_ID')
-    firebase_private_key = os.getenv('FIREBASE_PRIVATE_KEY')
-    firebase_client_email = os.getenv('FIREBASE_CLIENT_EMAIL')
+    firebase_project_id = safe_getenv('FIREBASE_PROJECT_ID')
+    firebase_private_key = safe_getenv('FIREBASE_PRIVATE_KEY')
+    firebase_client_email = safe_getenv('FIREBASE_CLIENT_EMAIL')
     
     if firebase_project_id and firebase_private_key and firebase_client_email:
         print("🌍 Loading Firebase credentials from environment variables (Railway)")
@@ -140,14 +183,14 @@ try:
         firebase_config = {
             "type": "service_account",
             "project_id": firebase_project_id,
-            "private_key_id": os.getenv('FIREBASE_PRIVATE_KEY_ID', ''),
+            "private_key_id": safe_getenv('FIREBASE_PRIVATE_KEY_ID', ''),
             "private_key": private_key,
             "client_email": firebase_client_email,
-            "client_id": os.getenv('FIREBASE_CLIENT_ID', ''),
+            "client_id": safe_getenv('FIREBASE_CLIENT_ID', ''),
             "auth_uri": "https://accounts.google.com/o/oauth2/auth",
             "token_uri": "https://oauth2.googleapis.com/token",
             "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
-            "client_x509_cert_url": os.getenv('FIREBASE_CLIENT_X509_CERT_URL', ''),
+            "client_x509_cert_url": safe_getenv('FIREBASE_CLIENT_X509_CERT_URL', ''),
             "universe_domain": "googleapis.com"
         }
         
@@ -831,7 +874,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-async def main():
+def main():
     """Main function to run the bot"""
     global bot_instance
     
@@ -863,36 +906,32 @@ async def main():
         print("🚫 Features disabled: Referral tracking, reward distribution")
     
     print("🚀 Bot is ready to receive commands!")
-    print("📡 Using Polling Mode - No webhook required")
     
-    # Use polling mode for all environments
-    try:
-        await application.run_polling(allowed_updates=Update.ALL_TYPES)
-    except KeyboardInterrupt:
-        print("\n🛑 Bot stopped by user")
-    except Exception as e:
-        print(f"❌ Bot error: {e}")
-        raise
+    # Check if running on Railway (production)
+    port = int(os.environ.get('PORT', 8080))
+    
+    if os.environ.get('RAILWAY_ENVIRONMENT'):
+        # Production mode - use webhook
+        print(f"🚂 Railway Environment Detected - Using Webhook on port {port}")
+        
+        # Set webhook URL
+        webhook_url = os.environ.get('WEBHOOK_URL')
+        if webhook_url:
+            application.bot.set_webhook(url=f"{webhook_url}/webhook")
+            print(f"🔗 Webhook set to: {webhook_url}/webhook")
+        
+        # Start webhook
+        application.run_webhook(
+            listen="0.0.0.0",
+            port=port,
+            webhook_url=f"/webhook",
+            secret_token=os.environ.get('WEBHOOK_SECRET', 'your-secret-token')
+        )
+    else:
+        # Development mode - use polling
+        print("🖥️  Development Environment - Using Polling")
+        application.run_polling()
 
 
 if __name__ == "__main__":
-    import asyncio
-    import signal
-    import sys
-    
-    def signal_handler(signum, frame):
-        print("\n🛑 Received interrupt signal, shutting down gracefully...")
-        sys.exit(0)
-    
-    # Set up signal handlers for graceful shutdown
-    signal.signal(signal.SIGINT, signal_handler)
-    signal.signal(signal.SIGTERM, signal_handler)
-    
-    try:
-        # Run the bot
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        print("\n🛑 Bot stopped by user")
-    except Exception as e:
-        print(f"❌ Fatal error: {e}")
-        sys.exit(1)
+    main()
