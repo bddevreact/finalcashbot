@@ -41,17 +41,16 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Bot configuration
 BOT_TOKEN = os.getenv('BOT_TOKEN', '')
 BOT_USERNAME = 'CashPoinntbot'
 
 # Group configuration
-REQUIRED_GROUP_ID = -1002551110221  # Bull Trading Community (BD)
-REQUIRED_GROUP_LINK = "https://t.me/+GOIMwAc_R9RhZGVk"
-REQUIRED_GROUP_NAME = "Bull Trading Community (BD)"
+REQUIRED_GROUP_ID = -1002963279317  # Bull Trading Community (BD)
+REQUIRED_GROUP_LINK = "https://t.me/+IJgHDdrX1yZlZWRh"
+REQUIRED_GROUP_NAME = "BT Learn & Earn Community BD"
 
 # Mini App configuration
-MINI_APP_URL = "https://helpful-khapse-deec27.netlify.app/"
+MINI_APP_URL = "https://cashpoinnts.netlify.app/"
 
 # Reward configuration
 REFERRAL_REWARD = 2  # 2 Taka per successful referral
