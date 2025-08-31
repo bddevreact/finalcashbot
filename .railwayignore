@@ -1,0 +1,51 @@
+# Exclude frontend files from Railway deployment
+src/
+public/
+node_modules/
+package.json
+package-lock.json
+vite.config.ts
+tsconfig.json
+tailwind.config.js
+postcss.config.js
+index.html
+
+# Exclude development files
+.env.local
+.env.development
+*.log
+.DS_Store
+Thumbs.db
+
+# Exclude documentation
+README.md
+*.md
+
+# Exclude test files
+__tests__/
+*.test.js
+*.test.ts
+*.spec.js
+*.spec.ts
+
+# Exclude build artifacts
+dist/
+build/
+.next/
+.nuxt/
+
+# Exclude IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Exclude git files
+.git/
+.gitignore
+
+# Exclude other bot files (keep only bot.py)
+bot_enhanced_referral.py
+bot_firebase.py
+config.py
+BOT_ANALYSIS.md
