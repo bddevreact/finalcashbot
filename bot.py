@@ -15,6 +15,7 @@ import requests
 from datetime import datetime
 from typing import Optional, Dict, Any
 from flask import Flask, request, jsonify
+import asyncio
 
 # Telegram Bot imports
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -731,10 +732,45 @@ class CashPoinntBot:
         
         return False
 
-
-# Initialize bot instance
-bot_instance = CashPoinntBot()
-
+    async def create_missing_referral_codes(self):
+        """Create missing referral codes in the referralCodes collection"""
+        if not self.db:
+            logger.info("📝 Database not connected, skipping referral code creation")
+            return
+            
+        try:
+            users_ref = self.db.collection('users')
+            referral_codes_ref = self.db.collection('referralCodes')
+            
+            # Get all users
+            users = users_ref.stream()
+            
+            for user in users:
+                user_data = user.to_dict()
+                telegram_id = user_data.get('telegram_id')
+                referral_code = user_data.get('referral_code')
+                
+                if not referral_code:
+                    continue
+                    
+                # Check if referral code exists
+                query = referral_codes_ref.where('referral_code', '==', referral_code).limit(1)
+                existing_codes = list(query.stream())
+                
+                if not existing_codes:
+                    # Create new referral code entry
+                    referral_codes_ref.add({
+                        'user_id': telegram_id,
+                        'referral_code': referral_code,
+                        'is_active': True,
+                        'usage_count': 0,
+                        'created_at': datetime.now(),
+                        'updated_at': datetime.now()
+                    })
+                    logger.info(f"✅ Created referral code {referral_code} for user {telegram_id}")
+                    
+        except Exception as e:
+            logger.warning(f"Failed to create missing referral codes: {e}")
 
 # Command Handlers
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1064,49 +1100,66 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def main():
+    """Main function to run the bot"""
     global bot_instance
+    
+    # Create application
     application = Application.builder().token(BOT_TOKEN).build()
-    bot_instance = CashPoinntBot()
-    bot_instance.application = application
-
-    # Add handlers
+    
+    # Add command handlers
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("status", status_command))
+    
+    # Add callback query handler
     application.add_handler(CallbackQueryHandler(handle_callback_query))
-
+    
+    # Create bot instance
+    bot_instance = CashPoinntBot()
+    bot_instance.application = application
+    
+    # Start the bot
     print("🤖 Cash Points Bot Starting...")
     print(f"🔗 Bot Username: @{BOT_USERNAME}")
     print(f"📱 Group: {REQUIRED_GROUP_NAME}")
     print(f"💰 Referral Reward: ৳{REFERRAL_REWARD}")
     print(f"🔥 Firebase: {'✅ Connected' if db else '❌ Not Connected'}")
-
+    
+    if not db:
+        print("⚠️  FALLBACK MODE: Bot running without database")
+        print("📝 Features available: Group verification, basic commands")
+        print("🚫 Features disabled: Referral tracking, reward distribution")
+    
+    print("🚀 Bot is ready to receive commands!")
+    
+    # Check if running on Railway (production)
     port = int(os.environ.get('PORT', 443))  # Default to 443 for Telegram
+    
     if os.environ.get('RAILWAY_ENVIRONMENT'):
         print(f"🚂 Railway Environment Detected - Using Webhook on port {port}")
         webhook_url = os.environ.get('WEBHOOK_URL', '').rstrip('/;')
-        if webhook_url:
-            try:
-                await asyncio.sleep(5)  # Wait for server readiness
-                await application.bot.delete_webhook()  # Clear any existing webhook
-                await application.bot.set_webhook(url=f"{webhook_url}/webhook")
-                print(f"🔗 Webhook set to: {webhook_url}/webhook")
-            except Exception as e:
-                print(f"❌ Failed to set webhook: {e}")
-                raise
-        else:
+        if not webhook_url:
             print("❌ WEBHOOK_URL not set in environment variables")
             raise ValueError("WEBHOOK_URL is required for Railway deployment")
+        try:
+            await asyncio.sleep(5)  # Wait for server readiness
+            await application.bot.delete_webhook()  # Clear existing webhook
+            webhook_full_url = f"{webhook_url}/webhook"
+            await application.bot.set_webhook(url=webhook_full_url)
+            print(f"🔗 Webhook set to: {webhook_full_url}")
+        except Exception as e:
+            print(f"❌ Failed to set webhook: {e}")
+            raise
         application.run_webhook(
             listen="0.0.0.0",
             port=port,
-            webhook_url=f"{webhook_url}/webhook",
+            webhook_url=webhook_full_url,
             secret_token=os.environ.get('WEBHOOK_SECRET', 'your-secret-token')
         )
     else:
         print("🖥️ Development Environment - Using Polling")
-        application.run_polling()
+        await application.run_polling()
+
 
 if __name__ == "__main__":
-    import asyncio
     asyncio.run(main())
