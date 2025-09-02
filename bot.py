@@ -1205,12 +1205,21 @@ def main():
                     print(f"🔗 Setting webhook to: {full_webhook_url}")
                     
                     # Set webhook with proper error handling
-                    import asyncio
                     try:
-                        # Run set_webhook in event loop
-                        loop = asyncio.new_event_loop()
-                        asyncio.set_event_loop(loop)
-                        loop.run_until_complete(application.bot.set_webhook(url=full_webhook_url))
+                        # Use the existing event loop if available, or create a new one
+                        try:
+                            loop = asyncio.get_running_loop()
+                            # If we're in an event loop, schedule the webhook set
+                            future = asyncio.create_task(application.bot.set_webhook(url=full_webhook_url))
+                            # Wait for it to complete
+                            import concurrent.futures
+                            with concurrent.futures.ThreadPoolExecutor() as executor:
+                                future = executor.submit(asyncio.run, application.bot.set_webhook(url=full_webhook_url))
+                                future.result(timeout=30)  # 30 second timeout
+                        except RuntimeError:
+                            # No event loop running, create one temporarily
+                            asyncio.run(application.bot.set_webhook(url=full_webhook_url))
+                        
                         print(f"✅ Webhook set successfully to: {full_webhook_url}")
                     except Exception as webhook_error:
                         print(f"❌ Failed to set webhook: {webhook_error}")
@@ -1220,8 +1229,6 @@ def main():
                         print("   - Domain is not properly configured")
                         print("🔄 Continuing with webhook mode anyway...")
                         webhook_url = None
-                    finally:
-                        loop.close()
                         
                 except Exception as e:
                     print(f"❌ Error configuring webhook: {e}")
