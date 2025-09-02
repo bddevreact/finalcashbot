@@ -1097,7 +1097,7 @@ def main():
     print("🚀 Bot is ready to receive commands!")
 
     # Check if running on Railway (production)
-    port = int(os.environ.get("PORT", 8080))
+    port = int(os.environ.get("PORT"))
 
     if os.environ.get("RAILWAY_ENVIRONMENT"):
         # Production mode - use webhook
