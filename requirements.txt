@@ -1,8 +1,8 @@
 # Python dependencies for Cash Points Telegram Bot
 # This file is used for Railway deployment
 
-# Telegram Bot API
-python-telegram-bot==20.7
+# Telegram Bot API (with webhook support)
+python-telegram-bot[webhooks]==20.7
 
 # Firebase Admin SDK
 firebase-admin==6.4.0
@@ -24,6 +24,7 @@ colorlog==6.8.0
 
 # Async support
 aiohttp==3.9.1
+httpx==0.25.2
 
 # Rate limiting
 ratelimit==2.2.1
@@ -33,3 +34,7 @@ Flask==3.0.0
 
 # Gunicorn for production server
 gunicorn==21.2.0
+
+# Webhook and SSL support
+cryptography==41.0.7
+pyOpenSSL==23.3.0
