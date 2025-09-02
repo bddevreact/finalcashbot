@@ -1066,60 +1066,54 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def main():
     """Main function to run the bot"""
     global bot_instance
-    
+
     # Create application
     application = Application.builder().token(BOT_TOKEN).build()
-    
+
     # Add command handlers
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("status", status_command))
-    
+
     # Add callback query handler
     application.add_handler(CallbackQueryHandler(handle_callback_query))
-    
+
     # Create bot instance
     bot_instance = CashPoinntBot()
     bot_instance.application = application
-    
+
     # Start the bot
     print("🤖 Cash Points Bot Starting...")
     print(f"🔗 Bot Username: @{BOT_USERNAME}")
     print(f"📱 Group: {REQUIRED_GROUP_NAME}")
     print(f"💰 Referral Reward: ৳{REFERRAL_REWARD}")
     print(f"🔥 Firebase: {'✅ Connected' if db else '❌ Not Connected'}")
-    
+
     if not db:
         print("⚠️  FALLBACK MODE: Bot running without database")
         print("📝 Features available: Group verification, basic commands")
         print("🚫 Features disabled: Referral tracking, reward distribution")
-    
+
     print("🚀 Bot is ready to receive commands!")
-    
+
     # Check if running on Railway (production)
-    port = int(os.environ.get('PORT', 8080))
-    
-    if os.environ.get('RAILWAY_ENVIRONMENT'):
+    port = int(os.environ.get("PORT", 8080))
+
+    if os.environ.get("RAILWAY_ENVIRONMENT"):
         # Production mode - use webhook
         print(f"🚂 Railway Environment Detected - Using Webhook on port {port}")
-        
-        # Set webhook URL
-        webhook_url = os.environ.get('WEBHOOK_URL')
-        if webhook_url:
-            application.bot.set_webhook(url=f"{webhook_url}/webhook")
-            print(f"🔗 Webhook set to: {webhook_url}/webhook")
-        
-        # Start webhook
-         
-            
-            port = int(os.environ.get("PORT", 8080))  # Railway $PORT দেয়
-            
-            application.run_webhook(
-                listen="0.0.0.0",
-                port=port,
-                webhook_url=f"https://finalcashbot-production.up.railway.app/webhook",
-                secret_token=os.environ.get('WEBHOOK_SECRET', 'your-secret-token')
-            )
+
+        webhook_url = os.environ.get("WEBHOOK_URL")
+        if not webhook_url:
+            raise ValueError("❌ WEBHOOK_URL not set in environment variables")
+
+        # Start webhook (no need for set_webhook, run_webhook does it)
+        application.run_webhook(
+            listen="0.0.0.0",
+            port=port,
+            webhook_url=f"{webhook_url}/webhook",  # full HTTPS URL required
+            secret_token=os.environ.get("WEBHOOK_SECRET", "your-secret-token"),
+        )
 
     else:
         # Development mode - use polling
