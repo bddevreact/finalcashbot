@@ -14,7 +14,7 @@ import logging
 import requests
 from datetime import datetime
 from typing import Optional, Dict, Any
-
+from flask import Flask, request, jsonify
 
 # Telegram Bot imports
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -28,14 +28,11 @@ import firebase_admin
 from firebase_admin import credentials, firestore
 from dotenv import load_dotenv
 
+# Flask app for Railway health checks
+app = Flask(__name__)
 
-
-# Load environment variables safely
-try:
-    load_dotenv()
-except Exception as e:
-    print(f"⚠️ Warning: Could not load .env file: {e}")
-    print("📝 Continuing with system environment variables...")
+# Load environment variables
+load_dotenv()
 
 # Configure logging
 logging.basicConfig(
@@ -44,24 +41,13 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-def safe_getenv(key, default=''):
-    """Safely get environment variable, handling null characters"""
-    try:
-        value = os.getenv(key, default)
-        if value and '\x00' in value:
-            # Remove null characters
-            value = value.replace('\x00', '')
-        return value
-    except Exception:
-        return default
-
 # Bot configuration
-BOT_TOKEN = safe_getenv('BOT_TOKEN', '')
+BOT_TOKEN = os.getenv('BOT_TOKEN', '')
 BOT_USERNAME = 'CashPoinntbot'
 
 # Group configuration
 REQUIRED_GROUP_ID = -1002963279317  # Bull Trading Community (BD)
-REQUIRED_GROUP_LINK = "https://t.me/+IJgHDdrX1yZlZWRh"
+REQUIRED_GROUP_LINK = "https://t.me/+BpuSbfk-HbA4NzBh"
 REQUIRED_GROUP_NAME = "BT Learn & Earn Community BD"
 
 # Mini App configuration
@@ -77,7 +63,29 @@ firebase_error_details = None
 # Global bot instance
 bot_instance = None
 
+# Flask routes for Railway health checks
+@app.route('/')
+def health_check():
+    """Health check endpoint for Railway"""
+    return jsonify({
+        'status': 'healthy',
+        'bot': 'Cash Points Bot',
+        'database': 'connected' if db else 'offline',
+        'timestamp': datetime.now().isoformat()
+    })
 
+@app.route('/webhook', methods=['POST'])
+def webhook():
+    """Webhook endpoint for Telegram bot"""
+    if request.method == 'POST':
+        if bot_instance:
+            # Forward the webhook to the bot
+            update = Update.de_json(request.get_json(), bot_instance.application.bot)
+            bot_instance.application.process_update(update)
+            return jsonify({'status': 'ok'})
+        else:
+            return jsonify({'status': 'error', 'message': 'Bot not initialized'}), 500
+    return jsonify({'status': 'error', 'message': 'Method not allowed'}), 405
 
 def check_system_time():
     """Check if system time is reasonable (not too far off)"""
@@ -144,9 +152,9 @@ try:
         print("✅ System time check passed")
     
     # Prioritize environment variables for Railway deployment
-    firebase_project_id = safe_getenv('FIREBASE_PROJECT_ID')
-    firebase_private_key = safe_getenv('FIREBASE_PRIVATE_KEY')
-    firebase_client_email = safe_getenv('FIREBASE_CLIENT_EMAIL')
+    firebase_project_id = os.getenv('FIREBASE_PROJECT_ID')
+    firebase_private_key = os.getenv('FIREBASE_PRIVATE_KEY')
+    firebase_client_email = os.getenv('FIREBASE_CLIENT_EMAIL')
     
     if firebase_project_id and firebase_private_key and firebase_client_email:
         print("🌍 Loading Firebase credentials from environment variables (Railway)")
@@ -160,14 +168,14 @@ try:
         firebase_config = {
             "type": "service_account",
             "project_id": firebase_project_id,
-            "private_key_id": safe_getenv('FIREBASE_PRIVATE_KEY_ID', ''),
+            "private_key_id": os.getenv('FIREBASE_PRIVATE_KEY_ID', ''),
             "private_key": private_key,
             "client_email": firebase_client_email,
-            "client_id": safe_getenv('FIREBASE_CLIENT_ID', ''),
+            "client_id": os.getenv('FIREBASE_CLIENT_ID', ''),
             "auth_uri": "https://accounts.google.com/o/oauth2/auth",
             "token_uri": "https://oauth2.googleapis.com/token",
             "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
-            "client_x509_cert_url": safe_getenv('FIREBASE_CLIENT_X509_CERT_URL', ''),
+            "client_x509_cert_url": os.getenv('FIREBASE_CLIENT_X509_CERT_URL', ''),
             "universe_domain": "googleapis.com"
         }
         
@@ -365,8 +373,8 @@ class CashPoinntBot:
             logger.warning(f"Database operation failed (continuing without DB): {e}")
             return False
     
-    async def process_referral(self, referrer_id: str, referred_id: str, referral_code: str) -> bool:
-        """Process referral and check for duplicates"""
+    async def process_referral(self, referrer_id: str, referred_id: str, referral_code: str, context: ContextTypes.DEFAULT_TYPE = None) -> bool:
+        """Process referral and check for duplicates with enhanced rejoin detection"""
         if not self.db:
             logger.info("📝 Database not connected, skipping referral processing")
             return False
@@ -374,8 +382,12 @@ class CashPoinntBot:
         try:
             referrals_ref = self.db.collection('referrals')
             
-            # Check if referral already exists (rejoin detection)
-            # Check for both referrer_id and referred_id combination to prevent duplicates
+            # FIRST: Check if referrer is trying to refer themselves
+            if referrer_id == referred_id:
+                logger.warning(f"🚫 User {referrer_id} tried to refer themselves")
+                return False
+            
+            # SECOND: Check if referral already exists (rejoin detection)
             existing_query = referrals_ref.where('referred_id', '==', referred_id).where('referrer_id', '==', referrer_id).limit(1)
             existing_docs = list(existing_query.stream())
             
@@ -393,7 +405,7 @@ class CashPoinntBot:
                 logger.info(f"⚠️ Duplicate referral detected for user {referred_id} by referrer {referrer_id}. Count: {rejoin_count}")
                 return False  # No reward for duplicate
             
-            # Also check if user was referred by someone else before
+            # THIRD: Check if user was referred by someone else before
             other_referral_query = referrals_ref.where('referred_id', '==', referred_id).limit(1)
             other_referral_docs = list(other_referral_query.stream())
             
@@ -403,6 +415,36 @@ class CashPoinntBot:
                 other_referrer = other_referral['referrer_id']
                 logger.warning(f"⚠️ User {referred_id} was already referred by {other_referrer}, ignoring new referral from {referrer_id}")
                 return False  # No reward for second referrer
+            
+            # FOURTH: Check if user is an existing member (bot create করার আগে থেকেই member)
+            if context:
+                is_existing_member = await self.check_user_was_existing_member(referred_id, context)
+                if is_existing_member:
+                    logger.warning(f"🚫 User {referred_id} is an existing member (was member before bot creation). No referral reward for {referrer_id}")
+                    return False
+            
+            # FIFTH: Check for referral abuse (old member referring new member)
+            is_abuse = await self.check_referral_abuse(referrer_id, referred_id)
+            if is_abuse:
+                logger.warning(f"🚨 Referral blocked due to abuse: {referrer_id} → {referred_id}")
+                return False
+            
+            # SIXTH: Check if the referred user already exists in database (created more than 1 hour ago)
+            users_ref = self.db.collection('users')
+            existing_user_query = users_ref.where('telegram_id', '==', referred_id).limit(1)
+            existing_user_docs = list(existing_user_query.stream())
+            
+            if existing_user_docs:
+                existing_user = existing_user_docs[0].to_dict()
+                user_created_at = existing_user.get('created_at')
+                
+                # If user was created more than 1 hour ago, they are considered "old"
+                if user_created_at:
+                    from datetime import timedelta
+                    time_diff = datetime.now() - user_created_at
+                    if time_diff > timedelta(hours=1):
+                        logger.warning(f"⚠️ User {referred_id} is an existing database user (created {time_diff.days} days ago). No referral reward for {referrer_id}")
+                        return False
             
             # Create new referral record
             referral_data = {
@@ -423,9 +465,158 @@ class CashPoinntBot:
         except Exception as e:
             logger.warning(f"Referral processing failed (continuing without DB): {e}")
             return False
+
+    async def check_referral_abuse(self, referrer_id: str, referred_id: str) -> bool:
+        """Check if referral is potentially abusive (old member referring new member)"""
+        if not self.db:
+            return False
+            
+        try:
+            users_ref = self.db.collection('users')
+            
+            # Get referrer info
+            referrer_query = users_ref.where('telegram_id', '==', referrer_id).limit(1)
+            referrer_docs = list(referrer_query.stream())
+            
+            if not referrer_docs:
+                return False  # Referrer not found, allow referral
+                
+            referrer_data = referrer_docs[0].to_dict()
+            referrer_created = referrer_data.get('created_at')
+            
+            # Get referred user info
+            referred_query = users_ref.where('telegram_id', '==', referred_id).limit(1)
+            referred_docs = list(referred_query.stream())
+            
+            if not referred_docs:
+                return False  # New user, allow referral
+                
+            referred_data = referred_docs[0].to_dict()
+            referred_created = referred_data.get('created_at')
+            
+            if referrer_created and referred_created:
+                from datetime import timedelta
+                
+                # Calculate time differences
+                referrer_age = datetime.now() - referrer_created
+                referred_age = datetime.now() - referred_created
+                
+                # If referrer is more than 24 hours old and referred user is less than 1 hour old
+                if referrer_age > timedelta(hours=24) and referred_age < timedelta(hours=1):
+                    logger.warning(f"🚨 Potential referral abuse detected: Old member {referrer_id} (created {referrer_age.days} days ago) referring very new user {referred_id} (created {referred_age.total_seconds()/3600:.1f} hours ago)")
+                    return True  # This is abuse
+                    
+                # If referrer is more than 7 days old and referred user is less than 24 hours old
+                if referrer_age > timedelta(days=7) and referred_age < timedelta(hours=24):
+                    logger.warning(f"⚠️ Suspicious referral: Very old member {referrer_id} (created {referrer_age.days} days ago) referring new user {referred_id} (created {referred_age.total_seconds()/3600:.1f} hours ago)")
+                    # Log but don't block - just monitor
+                    
+            return False
+            
+        except Exception as e:
+            logger.error(f"Error checking referral abuse: {e}")
+            return False
+
+    async def check_user_was_existing_member(self, user_id: str, context: ContextTypes.DEFAULT_TYPE) -> bool:
+        """Check if user was already a group member before bot creation"""
+        try:
+            # Check if user is currently a member
+            is_currently_member = await self.check_group_membership(int(user_id), context)
+            
+            if not is_currently_member:
+                return False  # Not a member now, can't be existing member
+            
+            # Check if user has any previous referral records (indicating they were referred before)
+            referrals_ref = self.db.collection('referrals')
+            previous_referral_query = referrals_ref.where('referred_id', '==', user_id).limit(1)
+            previous_referral_docs = list(previous_referral_query.stream())
+            
+            if previous_referral_docs:
+                # User was referred before, check if they have a rejoin count
+                previous_referral = previous_referral_docs[0].to_dict()
+                rejoin_count = previous_referral.get('rejoin_count', 0)
+                
+                if rejoin_count > 0:
+                    logger.info(f"🔄 User {user_id} has rejoin count: {rejoin_count} - they are a returning member")
+                    return True  # This is a returning member
+                
+                # Check if this referral was created more than 1 hour ago
+                referral_created = previous_referral.get('created_at')
+                if referral_created:
+                    from datetime import timedelta
+                    time_since_referral = datetime.now() - referral_created
+                    if time_since_referral > timedelta(hours=1):
+                        logger.info(f"⏰ User {user_id} was referred more than 1 hour ago - they are an existing member")
+                        return True  # This is an existing member
+            
+            # Check user's database record creation time
+            users_ref = self.db.collection('users')
+            user_query = users_ref.where('telegram_id', '==', user_id).limit(1)
+            user_docs = list(user_query.stream())
+            
+            if user_docs:
+                user_data = user_docs[0].to_dict()
+                user_created = user_data.get('created_at')
+                
+                if user_created:
+                    from datetime import timedelta
+                    user_age = datetime.now() - user_created
+                    
+                    # If user was created more than 1 hour ago, they are considered existing
+                    if user_age > timedelta(hours=1):
+                        logger.info(f"⏰ User {user_id} was created {user_age.total_seconds()/3600:.1f} hours ago - they are an existing member")
+                        return True
+            
+            return False
+            
+        except Exception as e:
+            logger.error(f"Error checking if user was existing member: {e}")
+            return False
+
+    async def detect_rejoin_attempt(self, user_id: str, context: ContextTypes.DEFAULT_TYPE) -> bool:
+        """Detect if user is trying to rejoin the group"""
+        try:
+            # Check if user was already a member before
+            was_existing = await self.check_user_was_existing_member(user_id, context)
+            
+            if was_existing:
+                # Check for previous referral records
+                referrals_ref = self.db.collection('referrals')
+                previous_query = referrals_ref.where('referred_id', '==', user_id).limit(1)
+                previous_docs = list(previous_query.stream())
+                
+                if previous_docs:
+                    previous_referral = previous_docs[0].to_dict()
+                    referrer_id = previous_referral.get('referrer_id')
+                    current_status = previous_referral.get('status', '')
+                    
+                    # If user was previously verified and is trying to rejoin
+                    if current_status == 'verified':
+                        logger.warning(f"🔄 Rejoin attempt detected: User {user_id} was previously verified by {referrer_id}")
+                        
+                        # Update rejoin count
+                        rejoin_count = previous_referral.get('rejoin_count', 0) + 1
+                        previous_docs[0].reference.update({
+                            'rejoin_count': rejoin_count,
+                            'last_rejoin_date': datetime.now(),
+                            'status': 'rejoined',
+                            'updated_at': datetime.now()
+                        })
+                        
+                        logger.info(f"🔄 Updated rejoin count for user {user_id}: {rejoin_count}")
+                        return True  # This is a rejoin attempt
+                
+                logger.info(f"⚠️ User {user_id} is an existing member but no previous referral found")
+                return True  # Existing member, treat as potential rejoin
+            
+            return False  # New user, not a rejoin
+            
+        except Exception as e:
+            logger.error(f"Error detecting rejoin attempt: {e}")
+            return False
     
     async def verify_group_join_and_reward(self, user_id: str, context: ContextTypes.DEFAULT_TYPE) -> bool:
-        """Verify group join and distribute reward to referrer"""
+        """Verify group join and distribute reward to referrer with rejoin detection"""
         if not self.db:
             logger.info("📝 Database not connected, skipping reward processing")
             return False
@@ -434,6 +625,12 @@ class CashPoinntBot:
             # Check if user is actually a group member
             is_member = await self.check_group_membership(int(user_id), context)
             if not is_member:
+                return False
+            
+            # FIRST: Check if this is a rejoin attempt
+            is_rejoin = await self.detect_rejoin_attempt(user_id, context)
+            if is_rejoin:
+                logger.warning(f"🔄 User {user_id} is rejoining. No reward will be given.")
                 return False
             
             referrals_ref = self.db.collection('referrals')
@@ -450,6 +647,21 @@ class CashPoinntBot:
             referral_data = referral_doc.to_dict()
             referrer_id = referral_data['referrer_id']
             referral_code = referral_data['referral_code']
+            
+            # SECOND: Double-check if user is an existing member
+            is_existing_member = await self.check_user_was_existing_member(user_id, context)
+            if is_existing_member:
+                logger.warning(f"🚫 User {user_id} is an existing member. No reward for referrer {referrer_id}")
+                
+                # Update referral status to indicate no reward
+                referral_doc.reference.update({
+                    'status': 'existing_member_no_reward',
+                    'group_join_verified': True,
+                    'group_join_date': datetime.now(),
+                    'reward_given': False,
+                    'updated_at': datetime.now()
+                })
+                return False
             
             # Update referral status
             referral_doc.reference.update({
@@ -579,11 +791,13 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                             logger.info(f"✅ Found referrer {referrer_id} in referral_codes collection")
                         else:
                             logger.warning(f"❌ No referrer found for code: {referral_code}")
+                            # Try to create missing referral codes
+                            await bot_instance.create_missing_referral_codes()
                             referrer_id = None
                     
                     if referrer_id and referrer_id != user_id:
-                        # Process referral
-                        await bot_instance.process_referral(referrer_id, user_id, referral_code)
+                        # Process referral with context for enhanced checks
+                        await bot_instance.process_referral(referrer_id, user_id, referral_code, context)
                         logger.info(f"✅ Processed referral: {referrer_id} → {user_id}")
                     elif referrer_id == user_id:
                         logger.warning(f"⚠️ User {user_id} tried to use their own referral code")
@@ -849,7 +1063,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-async def main():
+def main():
     """Main function to run the bot"""
     global bot_instance
     
@@ -881,47 +1095,32 @@ async def main():
         print("🚫 Features disabled: Referral tracking, reward distribution")
     
     print("🚀 Bot is ready to receive commands!")
-    print("📡 Using Polling Mode - No webhook required")
     
-    # Use polling mode for all environments
-    try:
-        await application.run_polling(
-            allowed_updates=Update.ALL_TYPES,
-            close_loop=False,
-            stop_signals=None
+    # Check if running on Railway (production)
+    port = int(os.environ.get('PORT', 8080))
+    
+    if os.environ.get('RAILWAY_ENVIRONMENT'):
+        # Production mode - use webhook
+        print(f"🚂 Railway Environment Detected - Using Webhook on port {port}")
+        
+        # Set webhook URL
+        webhook_url = os.environ.get('WEBHOOK_URL')
+        if webhook_url:
+            application.bot.set_webhook(url=f"{webhook_url}/webhook")
+            print(f"🔗 Webhook set to: {webhook_url}/webhook")
+        
+        # Start webhook
+        application.run_webhook(
+            listen="0.0.0.0",
+            port=port,
+            webhook_url=f"/webhook",
+            secret_token=os.environ.get('WEBHOOK_SECRET', 'your-secret-token')
         )
-    except KeyboardInterrupt:
-        print("\n🛑 Bot stopped by user")
-    except Exception as e:
-        print(f"❌ Bot error: {e}")
-        raise
+    else:
+        # Development mode - use polling
+        print("🖥️  Development Environment - Using Polling")
+        application.run_polling()
 
 
 if __name__ == "__main__":
-    import asyncio
-    import signal
-    import sys
-    
-    def signal_handler(signum, frame):
-        print("\n🛑 Received interrupt signal, shutting down gracefully...")
-        sys.exit(0)
-    
-    # Set up signal handlers for graceful shutdown
-    signal.signal(signal.SIGINT, signal_handler)
-    signal.signal(signal.SIGTERM, signal_handler)
-    
-    try:
-        # Run the bot with proper event loop handling
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        loop.run_until_complete(main())
-    except KeyboardInterrupt:
-        print("\n🛑 Bot stopped by user")
-    except Exception as e:
-        print(f"❌ Fatal error: {e}")
-        sys.exit(1)
-    finally:
-        try:
-            loop.close()
-        except:
-            pass
+    main()
