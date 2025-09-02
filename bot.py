@@ -121,6 +121,23 @@ def check_system_time():
     
     return True, None
 
+def validate_webhook_url(url: str) -> tuple[bool, str]:
+    """Validate webhook URL format"""
+    if not url:
+        return False, "Webhook URL is empty"
+    
+    if not url.startswith('https://'):
+        return False, "Webhook URL must start with https://"
+    
+    if len(url) < 10:
+        return False, "Webhook URL is too short"
+    
+    # Check for basic URL structure
+    if '.' not in url.split('://')[1]:
+        return False, "Invalid webhook URL format"
+    
+    return True, "Valid webhook URL"
+
 def validate_firebase_connection():
     """Test Firebase connection with a simple operation"""
     try:
@@ -1161,19 +1178,68 @@ def main():
         # Production mode - use webhook
         print(f"🚂 Railway Environment Detected - Using Webhook on port {port}")
         
-        # Set webhook URL
+        # Debug environment variables
+        print("🔍 Environment Variables Check:")
+        print(f"   PORT: {os.environ.get('PORT', 'Not set')}")
+        print(f"   WEBHOOK_URL: {os.environ.get('WEBHOOK_URL', 'Not set')}")
+        print(f"   WEBHOOK_SECRET: {'Set' if os.environ.get('WEBHOOK_SECRET') else 'Not set'}")
+        print(f"   RAILWAY_ENVIRONMENT: {os.environ.get('RAILWAY_ENVIRONMENT', 'Not set')}")
+        
+        # Set webhook URL with proper validation
         webhook_url = os.environ.get('WEBHOOK_URL')
         if webhook_url:
-            application.bot.set_webhook(url=f"{webhook_url}/webhook")
-            print(f"🔗 Webhook set to: {webhook_url}/webhook")
+            # Validate webhook URL format
+            is_valid, validation_msg = validate_webhook_url(webhook_url)
+            
+            if not is_valid:
+                print(f"⚠️ Webhook URL validation failed: {validation_msg}")
+                print(f"🔧 Current webhook URL: {webhook_url}")
+                print("🔧 Please check your WEBHOOK_URL environment variable")
+                webhook_url = None
+            else:
+                try:
+                    # Remove trailing slash if present
+                    webhook_url = webhook_url.rstrip('/')
+                    full_webhook_url = f"{webhook_url}/webhook"
+                    
+                    print(f"🔗 Setting webhook to: {full_webhook_url}")
+                    
+                    # Set webhook with proper error handling
+                    import asyncio
+                    try:
+                        # Run set_webhook in event loop
+                        loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(loop)
+                        loop.run_until_complete(application.bot.set_webhook(url=full_webhook_url))
+                        print(f"✅ Webhook set successfully to: {full_webhook_url}")
+                    except Exception as webhook_error:
+                        print(f"❌ Failed to set webhook: {webhook_error}")
+                        print("🔧 This usually means:")
+                        print("   - Webhook URL is not accessible from Telegram")
+                        print("   - SSL certificate issues")
+                        print("   - Domain is not properly configured")
+                        print("🔄 Continuing with webhook mode anyway...")
+                        webhook_url = None
+                    finally:
+                        loop.close()
+                        
+                except Exception as e:
+                    print(f"❌ Error configuring webhook: {e}")
+                    webhook_url = None
         
-        # Start webhook
-        application.run_webhook(
-            listen="0.0.0.0",
-            port=port,
-            webhook_url=f"/webhook",
-            secret_token=os.environ.get('WEBHOOK_SECRET', 'your-secret-token')
-        )
+        if webhook_url:
+            # Start webhook
+            print("🚀 Starting webhook server...")
+            application.run_webhook(
+                listen="0.0.0.0",
+                port=port,
+                webhook_url="/webhook",
+                secret_token=os.environ.get('WEBHOOK_SECRET', 'your-secret-token')
+            )
+        else:
+            print("⚠️ Webhook configuration failed, falling back to polling mode")
+            print("🔄 Starting polling mode...")
+            application.run_polling()
     else:
         # Development mode - use polling
         print("🖥️  Development Environment - Using Polling")
