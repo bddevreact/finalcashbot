@@ -12,6 +12,7 @@ Features:
 import os
 import logging
 import requests
+import asyncio
 from datetime import datetime, timezone
 from typing import Optional, Dict, Any
 from flask import Flask, request, jsonify
@@ -55,7 +56,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Bot configuration
-BOT_TOKEN = os.getenv('BOT_TOKEN', '8214925584:AAGzxmpSxFTGmvU-L778DNxUJ35QUR5dDZU')
+BOT_TOKEN = os.getenv('BOT_TOKEN', '8214925584:AAFYwL6m1eJtv-JBXyw5KVJDvtcvnC40Qy8')
 BOT_USERNAME = 'CashPoinntbot'
 
 # Group configuration
@@ -770,6 +771,47 @@ class CashPoinntBot:
             return False
         
         return False
+    
+    async def create_missing_referral_codes(self):
+        """Create missing referral codes for users who don't have them"""
+        if not self.db:
+            return False
+            
+        try:
+            users_ref = self.db.collection('users')
+            referrals_ref = self.db.collection('referralCodes')
+            
+            # Get all users
+            users = list(users_ref.stream())
+            
+            for user_doc in users:
+                user_data = user_doc.to_dict()
+                telegram_id = user_data.get('telegram_id')
+                referral_code = user_data.get('referral_code')
+                
+                if telegram_id and referral_code:
+                    # Check if referral code exists in referralCodes collection
+                    existing_query = referrals_ref.where('referral_code', '==', referral_code).limit(1)
+                    existing_docs = list(existing_query.stream())
+                    
+                    if not existing_docs:
+                        # Create missing referral code
+                        referral_code_data = {
+                            'referral_code': referral_code,
+                            'user_id': telegram_id,
+                            'is_active': True,
+                            'usage_count': 0,
+                            'created_at': get_current_time(),
+                            'updated_at': get_current_time()
+                        }
+                        referrals_ref.add(referral_code_data)
+                        logger.info(f"✅ Created missing referral code: {referral_code} for user {telegram_id}")
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error creating missing referral codes: {e}")
+            return False
 
 
 # Initialize bot instance
