@@ -31,7 +31,7 @@ ratelimit==2.2.1
 
 # Flask for Railway webhook
 Flask==3.0.0
-
+uvicorn>=0.22.0
 # Gunicorn for production server
 gunicorn==21.2.0
 
