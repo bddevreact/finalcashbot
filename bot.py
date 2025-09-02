@@ -1063,64 +1063,50 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-def main():
-    """Main function to run the bot"""
+async def main():
     global bot_instance
-    
-    # Create application
     application = Application.builder().token(BOT_TOKEN).build()
-    
-    # Add command handlers
+    bot_instance = CashPoinntBot()
+    bot_instance.application = application
+
+    # Add handlers
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("status", status_command))
-    
-    # Add callback query handler
     application.add_handler(CallbackQueryHandler(handle_callback_query))
-    
-    # Create bot instance
-    bot_instance = CashPoinntBot()
-    bot_instance.application = application
-    
-    # Start the bot
+
     print("🤖 Cash Points Bot Starting...")
     print(f"🔗 Bot Username: @{BOT_USERNAME}")
     print(f"📱 Group: {REQUIRED_GROUP_NAME}")
     print(f"💰 Referral Reward: ৳{REFERRAL_REWARD}")
     print(f"🔥 Firebase: {'✅ Connected' if db else '❌ Not Connected'}")
-    
-    if not db:
-        print("⚠️  FALLBACK MODE: Bot running without database")
-        print("📝 Features available: Group verification, basic commands")
-        print("🚫 Features disabled: Referral tracking, reward distribution")
-    
-    print("🚀 Bot is ready to receive commands!")
-    
-    # Check if running on Railway (production)
-    port = int(os.environ.get('PORT', 8080))
-    
+
+    port = int(os.environ.get('PORT', 443))  # Default to 443 for Telegram
     if os.environ.get('RAILWAY_ENVIRONMENT'):
-        # Production mode - use webhook
         print(f"🚂 Railway Environment Detected - Using Webhook on port {port}")
-        
-        # Set webhook URL
-        webhook_url = os.environ.get('WEBHOOK_URL')
+        webhook_url = os.environ.get('WEBHOOK_URL', '').rstrip('/;')
         if webhook_url:
-            application.bot.set_webhook(url=f"{webhook_url}/webhook")
-            print(f"🔗 Webhook set to: {webhook_url}/webhook")
-        
-        # Start webhook
+            try:
+                await asyncio.sleep(5)  # Wait for server readiness
+                await application.bot.delete_webhook()  # Clear any existing webhook
+                await application.bot.set_webhook(url=f"{webhook_url}/webhook")
+                print(f"🔗 Webhook set to: {webhook_url}/webhook")
+            except Exception as e:
+                print(f"❌ Failed to set webhook: {e}")
+                raise
+        else:
+            print("❌ WEBHOOK_URL not set in environment variables")
+            raise ValueError("WEBHOOK_URL is required for Railway deployment")
         application.run_webhook(
             listen="0.0.0.0",
             port=port,
-            webhook_url=f"/webhook",
+            webhook_url=f"{webhook_url}/webhook",
             secret_token=os.environ.get('WEBHOOK_SECRET', 'your-secret-token')
         )
     else:
-        # Development mode - use polling
-        print("🖥️  Development Environment - Using Polling")
+        print("🖥️ Development Environment - Using Polling")
         application.run_polling()
 
-
 if __name__ == "__main__":
-    main()
+    import asyncio
+    asyncio.run(main())
