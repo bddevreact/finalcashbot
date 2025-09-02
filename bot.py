@@ -15,7 +15,6 @@ import requests
 from datetime import datetime
 from typing import Optional, Dict, Any
 from flask import Flask, request, jsonify
-import asyncio
 
 # Telegram Bot imports
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -43,7 +42,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Bot configuration
-BOT_TOKEN = os.getenv('BOT_TOKEN', '')
+BOT_TOKEN = os.getenv('BOT_TOKEN', '8214925584:AAGzxmpSxFTGmvU-L778DNxUJ35QUR5dDZU')
 BOT_USERNAME = 'CashPoinntbot'
 
 # Group configuration
@@ -732,45 +731,10 @@ class CashPoinntBot:
         
         return False
 
-    async def create_missing_referral_codes(self):
-        """Create missing referral codes in the referralCodes collection"""
-        if not self.db:
-            logger.info("📝 Database not connected, skipping referral code creation")
-            return
-            
-        try:
-            users_ref = self.db.collection('users')
-            referral_codes_ref = self.db.collection('referralCodes')
-            
-            # Get all users
-            users = users_ref.stream()
-            
-            for user in users:
-                user_data = user.to_dict()
-                telegram_id = user_data.get('telegram_id')
-                referral_code = user_data.get('referral_code')
-                
-                if not referral_code:
-                    continue
-                    
-                # Check if referral code exists
-                query = referral_codes_ref.where('referral_code', '==', referral_code).limit(1)
-                existing_codes = list(query.stream())
-                
-                if not existing_codes:
-                    # Create new referral code entry
-                    referral_codes_ref.add({
-                        'user_id': telegram_id,
-                        'referral_code': referral_code,
-                        'is_active': True,
-                        'usage_count': 0,
-                        'created_at': datetime.now(),
-                        'updated_at': datetime.now()
-                    })
-                    logger.info(f"✅ Created referral code {referral_code} for user {telegram_id}")
-                    
-        except Exception as e:
-            logger.warning(f"Failed to create missing referral codes: {e}")
+
+# Initialize bot instance
+bot_instance = CashPoinntBot()
+
 
 # Command Handlers
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1099,7 +1063,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-async def main():
+def main():
     """Main function to run the bot"""
     global bot_instance
     
@@ -1133,33 +1097,30 @@ async def main():
     print("🚀 Bot is ready to receive commands!")
     
     # Check if running on Railway (production)
-    port = int(os.environ.get('PORT', 443))  # Default to 443 for Telegram
+    port = int(os.environ.get('PORT', 8080))
     
     if os.environ.get('RAILWAY_ENVIRONMENT'):
+        # Production mode - use webhook
         print(f"🚂 Railway Environment Detected - Using Webhook on port {port}")
-        webhook_url = os.environ.get('WEBHOOK_URL', '').rstrip('/;')
-        if not webhook_url:
-            print("❌ WEBHOOK_URL not set in environment variables")
-            raise ValueError("WEBHOOK_URL is required for Railway deployment")
-        try:
-            await asyncio.sleep(5)  # Wait for server readiness
-            await application.bot.delete_webhook()  # Clear existing webhook
-            webhook_full_url = f"{webhook_url}/webhook"
-            await application.bot.set_webhook(url=webhook_full_url)
-            print(f"🔗 Webhook set to: {webhook_full_url}")
-        except Exception as e:
-            print(f"❌ Failed to set webhook: {e}")
-            raise
+        
+        # Set webhook URL
+        webhook_url = os.environ.get('WEBHOOK_URL')
+        if webhook_url:
+            application.bot.set_webhook(url=f"{webhook_url}/webhook")
+            print(f"🔗 Webhook set to: {webhook_url}/webhook")
+        
+        # Start webhook
         application.run_webhook(
             listen="0.0.0.0",
             port=port,
-            webhook_url=webhook_full_url,
+            webhook_url=f"/webhook",
             secret_token=os.environ.get('WEBHOOK_SECRET', 'your-secret-token')
         )
     else:
-        print("🖥️ Development Environment - Using Polling")
-        await application.run_polling()
+        # Development mode - use polling
+        print("🖥️  Development Environment - Using Polling")
+        application.run_polling()
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
