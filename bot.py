@@ -12,7 +12,7 @@ Features:
 import os
 import logging
 import requests
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, Dict, Any
 from flask import Flask, request, jsonify
 
@@ -30,6 +30,19 @@ from dotenv import load_dotenv
 
 # Flask app for Railway health checks
 app = Flask(__name__)
+
+def get_current_time():
+    """Get current time in UTC timezone (timezone-aware)"""
+    return datetime.now(timezone.utc)
+
+def ensure_timezone_aware(dt):
+    """Ensure datetime is timezone-aware, convert naive to UTC if needed"""
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        # If naive, assume it's UTC and make it timezone-aware
+        return dt.replace(tzinfo=timezone.utc)
+    return dt
 
 # Load environment variables
 load_dotenv()
@@ -71,7 +84,7 @@ def health_check():
         'status': 'healthy',
         'bot': 'Cash Points Bot',
         'database': 'connected' if db else 'offline',
-        'timestamp': datetime.now().isoformat()
+        'timestamp': get_current_time().isoformat()
     })
 
 @app.route('/webhook', methods=['POST'])
@@ -91,13 +104,12 @@ def check_system_time():
     """Check if system time is reasonable (not too far off)"""
     try:
         import requests
-        from datetime import datetime
         
         # Get current time from a reliable source
         response = requests.get('http://worldtimeapi.org/api/timezone/Etc/UTC', timeout=5)
         if response.status_code == 200:
             server_time = datetime.fromisoformat(response.json()['datetime'].replace('Z', '+00:00'))
-            local_time = datetime.now()
+            local_time = get_current_time()
             time_diff = abs((server_time - local_time).total_seconds())
             
             if time_diff > 300:  # More than 5 minutes difference
@@ -342,8 +354,8 @@ class CashPoinntBot:
                         'username': user_data.get('username', ''),
                         'first_name': user_data.get('first_name', ''),
                         'last_name': user_data.get('last_name', ''),
-                        'last_active': datetime.now(),
-                        'updated_at': datetime.now()
+                        'last_active': get_current_time(),
+                        'updated_at': get_current_time()
                     })
                     logger.info(f"✅ Updated user {telegram_id} in database")
                     return True
@@ -360,9 +372,9 @@ class CashPoinntBot:
                     'referral_code': self.generate_referral_code(int(telegram_id)),
                     'is_verified': False,
                     'is_banned': False,
-                    'created_at': datetime.now(),
-                    'updated_at': datetime.now(),
-                    'last_active': datetime.now()
+                    'created_at': get_current_time(),
+                    'updated_at': get_current_time(),
+                    'last_active': get_current_time()
                 }
                 
                 users_ref.add(new_user_data)
@@ -398,8 +410,8 @@ class CashPoinntBot:
                 
                 existing_docs[0].reference.update({
                     'rejoin_count': rejoin_count,
-                    'last_rejoin_date': datetime.now(),
-                    'updated_at': datetime.now()
+                    'last_rejoin_date': get_current_time(),
+                    'updated_at': get_current_time()
                 })
                 
                 logger.info(f"⚠️ Duplicate referral detected for user {referred_id} by referrer {referrer_id}. Count: {rejoin_count}")
@@ -441,7 +453,9 @@ class CashPoinntBot:
                 # If user was created more than 1 hour ago, they are considered "old"
                 if user_created_at:
                     from datetime import timedelta
-                    time_diff = datetime.now() - user_created_at
+                    user_created_at = ensure_timezone_aware(user_created_at)
+                    current_time = get_current_time()
+                    time_diff = current_time - user_created_at
                     if time_diff > timedelta(hours=1):
                         logger.warning(f"⚠️ User {referred_id} is an existing database user (created {time_diff.days} days ago). No referral reward for {referrer_id}")
                         return False
@@ -452,7 +466,7 @@ class CashPoinntBot:
                 'referred_id': referred_id,
                 'referral_code': referral_code,
                 'status': 'pending_group_join',
-                'created_at': datetime.now(),
+                'created_at': get_current_time(),
                 'group_join_verified': False,
                 'rejoin_count': 0,
                 'reward_given': False
@@ -497,9 +511,14 @@ class CashPoinntBot:
             if referrer_created and referred_created:
                 from datetime import timedelta
                 
+                # Ensure both datetimes are timezone-aware
+                referrer_created = ensure_timezone_aware(referrer_created)
+                referred_created = ensure_timezone_aware(referred_created)
+                current_time = get_current_time()
+                
                 # Calculate time differences
-                referrer_age = datetime.now() - referrer_created
-                referred_age = datetime.now() - referred_created
+                referrer_age = current_time - referrer_created
+                referred_age = current_time - referred_created
                 
                 # If referrer is more than 24 hours old and referred user is less than 1 hour old
                 if referrer_age > timedelta(hours=24) and referred_age < timedelta(hours=1):
@@ -544,7 +563,9 @@ class CashPoinntBot:
                 referral_created = previous_referral.get('created_at')
                 if referral_created:
                     from datetime import timedelta
-                    time_since_referral = datetime.now() - referral_created
+                    referral_created = ensure_timezone_aware(referral_created)
+                    current_time = get_current_time()
+                    time_since_referral = current_time - referral_created
                     if time_since_referral > timedelta(hours=1):
                         logger.info(f"⏰ User {user_id} was referred more than 1 hour ago - they are an existing member")
                         return True  # This is an existing member
@@ -560,7 +581,9 @@ class CashPoinntBot:
                 
                 if user_created:
                     from datetime import timedelta
-                    user_age = datetime.now() - user_created
+                    user_created = ensure_timezone_aware(user_created)
+                    current_time = get_current_time()
+                    user_age = current_time - user_created
                     
                     # If user was created more than 1 hour ago, they are considered existing
                     if user_age > timedelta(hours=1):
@@ -598,9 +621,9 @@ class CashPoinntBot:
                         rejoin_count = previous_referral.get('rejoin_count', 0) + 1
                         previous_docs[0].reference.update({
                             'rejoin_count': rejoin_count,
-                            'last_rejoin_date': datetime.now(),
+                            'last_rejoin_date': get_current_time(),
                             'status': 'rejoined',
-                            'updated_at': datetime.now()
+                            'updated_at': get_current_time()
                         })
                         
                         logger.info(f"🔄 Updated rejoin count for user {user_id}: {rejoin_count}")
@@ -657,9 +680,9 @@ class CashPoinntBot:
                 referral_doc.reference.update({
                     'status': 'existing_member_no_reward',
                     'group_join_verified': True,
-                    'group_join_date': datetime.now(),
+                    'group_join_date': get_current_time(),
                     'reward_given': False,
-                    'updated_at': datetime.now()
+                    'updated_at': get_current_time()
                 })
                 return False
             
@@ -667,9 +690,9 @@ class CashPoinntBot:
             referral_doc.reference.update({
                 'status': 'verified',
                 'group_join_verified': True,
-                'group_join_date': datetime.now(),
+                'group_join_date': get_current_time(),
                 'reward_given': True,
-                'updated_at': datetime.now()
+                'updated_at': get_current_time()
             })
             
             # Update referrer's balance and stats
@@ -689,7 +712,7 @@ class CashPoinntBot:
                     'balance': new_balance,
                     'total_earnings': new_total_earnings,
                     'total_referrals': new_total_referrals,
-                    'updated_at': datetime.now()
+                    'updated_at': get_current_time()
                 })
                 
                 # Update referral_codes collection
@@ -703,8 +726,8 @@ class CashPoinntBot:
                         current_usage = referral_code_doc.to_dict().get('usage_count', 0)
                         referral_code_doc.reference.update({
                             'usage_count': current_usage + 1,
-                            'last_used': datetime.now(),
-                            'updated_at': datetime.now()
+                            'last_used': get_current_time(),
+                            'updated_at': get_current_time()
                         })
                         logger.info(f"✅ Updated referral code usage count: {referral_code}")
                 except Exception as e:
@@ -718,7 +741,7 @@ class CashPoinntBot:
                     'type': 'referral',
                     'description': f'Referral reward from user {user_id}',
                     'referral_id': referral_doc.id,
-                    'created_at': datetime.now()
+                    'created_at': get_current_time()
                 }
                 earnings_ref.add(earnings_data)
                 
@@ -882,11 +905,26 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle callback queries (button clicks)"""
     query = update.callback_query
-    await query.answer()
+    
+    # Safely answer callback query with error handling
+    try:
+        await query.answer()
+    except Exception as e:
+        # Log the error but continue processing
+        logger.warning(f"Failed to answer callback query: {e}")
+        # Continue processing even if we can't answer the callback
+    
+    # Check if callback query is still valid
+    if not query.data:
+        logger.warning("Invalid callback query: no data")
+        return
     
     user = query.from_user
     user_id = str(user.id)
     user_name = user.first_name or user.username or f"User{user.id}"
+    
+    # Log callback query processing
+    logger.info(f"Processing callback query: {query.data} for user {user_id}")
     
     if query.data == "verify_membership":
         # Check if user is now a member
@@ -926,14 +964,24 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                     reply_markup=reply_markup,
                     parse_mode='HTML'
                 )
-            except Exception:
+            except Exception as e:
+                # Log the specific error
+                logger.warning(f"Failed to edit message caption: {e}")
                 # If edit fails, send new message
-                await query.message.reply_photo(
-                    photo="https://i.postimg.cc/65Sx65jK/01.jpg",
-                    caption=success_text,
-                    reply_markup=reply_markup,
-                    parse_mode='HTML'
-                )
+                try:
+                    await query.message.reply_photo(
+                        photo="https://i.postimg.cc/65Sx65jK/01.jpg",
+                        caption=success_text,
+                        reply_markup=reply_markup,
+                        parse_mode='HTML'
+                    )
+                except Exception as reply_error:
+                    logger.error(f"Failed to send reply message: {reply_error}")
+                    # Last resort: send text message
+                    await query.message.reply_text(
+                        success_text,
+                        parse_mode='HTML'
+                    )
         
         else:
             # User is still not a member
@@ -962,13 +1010,23 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                     reply_markup=reply_markup,
                     parse_mode='HTML'
                 )
-            except Exception:
+            except Exception as e:
+                # Log the specific error
+                logger.warning(f"Failed to edit message caption: {e}")
                 # If edit fails, send new message
-                await query.message.reply_text(
-                    not_member_text,
-                    reply_markup=reply_markup,
-                    parse_mode='HTML'
-                )
+                try:
+                    await query.message.reply_text(
+                        not_member_text,
+                        reply_markup=reply_markup,
+                        parse_mode='HTML'
+                    )
+                except Exception as reply_error:
+                    logger.error(f"Failed to send reply message: {reply_error}")
+                    # Last resort: send text message without markup
+                    await query.message.reply_text(
+                        not_member_text,
+                        parse_mode='HTML'
+                    )
 
 
 async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1014,7 +1072,7 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "   ✅ Basic commands\n"
         )
     
-    status_text += f"\n⏰ <b>Check Time:</b> {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+    status_text += f"\n⏰ <b>Check Time:</b> {get_current_time().strftime('%Y-%m-%d %H:%M:%S')}"
     
     keyboard = [
         [InlineKeyboardButton("📱 Join Group", url=REQUIRED_GROUP_LINK)],
@@ -1066,55 +1124,56 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def main():
     """Main function to run the bot"""
     global bot_instance
-
+    
     # Create application
     application = Application.builder().token(BOT_TOKEN).build()
-
+    
     # Add command handlers
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("status", status_command))
-
+    
     # Add callback query handler
     application.add_handler(CallbackQueryHandler(handle_callback_query))
-
+    
     # Create bot instance
     bot_instance = CashPoinntBot()
     bot_instance.application = application
-
+    
     # Start the bot
     print("🤖 Cash Points Bot Starting...")
     print(f"🔗 Bot Username: @{BOT_USERNAME}")
     print(f"📱 Group: {REQUIRED_GROUP_NAME}")
     print(f"💰 Referral Reward: ৳{REFERRAL_REWARD}")
     print(f"🔥 Firebase: {'✅ Connected' if db else '❌ Not Connected'}")
-
+    
     if not db:
         print("⚠️  FALLBACK MODE: Bot running without database")
         print("📝 Features available: Group verification, basic commands")
         print("🚫 Features disabled: Referral tracking, reward distribution")
-
+    
     print("🚀 Bot is ready to receive commands!")
-
+    
     # Check if running on Railway (production)
-    port = int(os.environ.get("PORT"))
-
-    if os.environ.get("RAILWAY_ENVIRONMENT"):
+    port = int(os.environ.get('PORT', 8080))
+    
+    if os.environ.get('RAILWAY_ENVIRONMENT'):
         # Production mode - use webhook
         print(f"🚂 Railway Environment Detected - Using Webhook on port {port}")
-
-        webhook_url = os.environ.get("WEBHOOK_URL")
-        if not webhook_url:
-            raise ValueError("❌ WEBHOOK_URL not set in environment variables")
-
-        # Start webhook (no need for set_webhook, run_webhook does it)
+        
+        # Set webhook URL
+        webhook_url = os.environ.get('WEBHOOK_URL')
+        if webhook_url:
+            application.bot.set_webhook(url=f"{webhook_url}/webhook")
+            print(f"🔗 Webhook set to: {webhook_url}/webhook")
+        
+        # Start webhook
         application.run_webhook(
             listen="0.0.0.0",
             port=port,
-            webhook_url=f"{webhook_url}/webhook",  # full HTTPS URL required
-            secret_token=os.environ.get("WEBHOOK_SECRET", "your-secret-token"),
+            webhook_url=f"/webhook",
+            secret_token=os.environ.get('WEBHOOK_SECRET', 'your-secret-token')
         )
-
     else:
         # Development mode - use polling
         print("🖥️  Development Environment - Using Polling")
