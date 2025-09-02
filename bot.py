@@ -1112,7 +1112,7 @@ def main():
         # Start webhook
          
             
-            port = int(os.environ.get("PORT", 8443))  # Railway $PORT দেয়
+            port = int(os.environ.get("PORT", 8080))  # Railway $PORT দেয়
             
             application.run_webhook(
                 listen="0.0.0.0",
