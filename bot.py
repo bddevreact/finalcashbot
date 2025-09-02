@@ -1110,12 +1110,17 @@ def main():
             print(f"🔗 Webhook set to: {webhook_url}/webhook")
         
         # Start webhook
-        application.run_webhook(
-            listen="0.0.0.0",
-            port=port,
-            webhook_url=f"/webhook",
-            secret_token=os.environ.get('WEBHOOK_SECRET', 'your-secret-token')
-        )
+         
+            
+            port = int(os.environ.get("PORT", 8443))  # Railway $PORT দেয়
+            
+            application.run_webhook(
+                listen="0.0.0.0",
+                port=port,
+                webhook_url=f"https://finalcashbot-production.up.railway.app/webhook",
+                secret_token=os.environ.get('WEBHOOK_SECRET', 'your-secret-token')
+            )
+
     else:
         # Development mode - use polling
         print("🖥️  Development Environment - Using Polling")
